@@ -46,7 +46,7 @@ Listeners:
               value:
                 disable: true
         - disabled: true
-          name: ext_proc_before_auth/default/extproc-service
+          name: ext_proc/authn_before/default/extproc-service
           typedConfig:
             '@type': type.googleapis.com/envoy.extensions.common.matching.v3.ExtensionWithMatcher
             extensionConfig:
@@ -86,7 +86,7 @@ Listeners:
                           path:
                           - key: disable
         - disabled: true
-          name: ext_proc_after_auth/default/extproc-service
+          name: ext_proc/default/extproc-service
           typedConfig:
             '@type': type.googleapis.com/envoy.extensions.common.matching.v3.ExtensionWithMatcher
             extensionConfig:
@@ -159,7 +159,7 @@ Routes:
         cluster: kube_default_test_80
         clusterNotFoundResponseCode: INTERNAL_SERVER_ERROR
       typedPerFilterConfig:
-        ext_proc_before_auth/default/extproc-service:
+        ext_proc/authn_before/default/extproc-service:
           '@type': type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
           overrides: {}
     - match:
@@ -174,7 +174,7 @@ Routes:
         cluster: kube_default_test_80
         clusterNotFoundResponseCode: INTERNAL_SERVER_ERROR
       typedPerFilterConfig:
-        ext_proc_after_auth/default/extproc-service:
+        ext_proc/default/extproc-service:
           '@type': type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
           overrides: {}
     - match:
@@ -189,7 +189,7 @@ Routes:
         cluster: kube_default_test_80
         clusterNotFoundResponseCode: INTERNAL_SERVER_ERROR
       typedPerFilterConfig:
-        ext_proc_after_auth/default/extproc-service:
+        ext_proc/default/extproc-service:
           '@type': type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
           overrides: {}
 Statuses:

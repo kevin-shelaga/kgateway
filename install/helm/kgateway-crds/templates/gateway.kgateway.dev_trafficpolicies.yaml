@@ -876,15 +876,38 @@ spec:
                         type: string
                     type: object
                   stage:
-                    default: AfterAuth
                     description: |-
-                      Stage determines when ExtProc runs in the filter chain relative to authentication.
-                      BeforeAuth: runs before authentication/authorization filters
-                      AfterAuth: runs after authorization filters (default)
-                    enum:
-                    - BeforeAuth
-                    - AfterAuth
-                    type: string
+                      Stage determines where ExtProc runs in the filter chain.
+                      Allows specifying both the stage and the predicate (Before/During/After).
+                      Defaults to After AuthZ stage if not specified.
+                    properties:
+                      predicate:
+                        default: After
+                        description: |-
+                          Predicate specifies where to place the filter relative to the stage.
+                          Defaults to After if not specified.
+                        enum:
+                        - Before
+                        - During
+                        - After
+                        type: string
+                      stage:
+                        default: AuthZ
+                        description: |-
+                          Stage specifies the filter chain stage.
+                          Defaults to AuthZ if not specified.
+                        enum:
+                        - Fault
+                        - Cors
+                        - Waf
+                        - AuthN
+                        - AuthZ
+                        - RateLimit
+                        - Accepted
+                        - OutAuth
+                        - Route
+                        type: string
+                    type: object
                 type: object
                 x-kubernetes-validations:
                 - message: exactly one of the fields in [extensionRef disable] must

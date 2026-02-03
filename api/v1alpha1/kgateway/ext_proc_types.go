@@ -70,16 +70,58 @@ const (
 	RouteCacheActionRetain ExtProcRouteCacheAction = "Retain"
 )
 
-// ExtProcStage defines when ExtProc runs relative to authentication.
-// +kubebuilder:validation:Enum=BeforeAuth;AfterAuth
-type ExtProcStage string
+// ExtProcFilterStage defines the stage in the filter chain where ExtProc runs.
+// +kubebuilder:validation:Enum=Fault;Cors;Waf;AuthN;AuthZ;RateLimit;Accepted;OutAuth;Route
+type ExtProcFilterStage string
 
 const (
-	// ExtProcStageBeforeAuth runs ExtProc before authentication filters.
-	ExtProcStageBeforeAuth ExtProcStage = "BeforeAuth"
-	// ExtProcStageAfterAuth runs ExtProc after authorization filters (default).
-	ExtProcStageAfterAuth ExtProcStage = "AfterAuth"
+	// ExtProcFilterStageFault runs ExtProc at the Fault injection stage (first stage).
+	ExtProcFilterStageFault ExtProcFilterStage = "Fault"
+	// ExtProcFilterStageCors runs ExtProc at the CORS stage.
+	ExtProcFilterStageCors ExtProcFilterStage = "Cors"
+	// ExtProcFilterStageWaf runs ExtProc at the WAF stage.
+	ExtProcFilterStageWaf ExtProcFilterStage = "Waf"
+	// ExtProcFilterStageAuthN runs ExtProc at the Authentication stage.
+	ExtProcFilterStageAuthN ExtProcFilterStage = "AuthN"
+	// ExtProcFilterStageAuthZ runs ExtProc at the Authorization stage.
+	ExtProcFilterStageAuthZ ExtProcFilterStage = "AuthZ"
+	// ExtProcFilterStageRateLimit runs ExtProc at the Rate Limiting stage.
+	ExtProcFilterStageRateLimit ExtProcFilterStage = "RateLimit"
+	// ExtProcFilterStageAccepted runs ExtProc at the Accepted stage (after all checks pass).
+	ExtProcFilterStageAccepted ExtProcFilterStage = "Accepted"
+	// ExtProcFilterStageOutAuth runs ExtProc at the OutAuth stage (upstream auth).
+	ExtProcFilterStageOutAuth ExtProcFilterStage = "OutAuth"
+	// ExtProcFilterStageRoute runs ExtProc at the Route stage (last stage).
+	ExtProcFilterStageRoute ExtProcFilterStage = "Route"
 )
+
+// ExtProcFilterPredicate defines the placement relative to a stage.
+// +kubebuilder:validation:Enum=Before;During;After
+type ExtProcFilterPredicate string
+
+const (
+	// ExtProcFilterPredicateBefore places the filter before the specified stage.
+	ExtProcFilterPredicateBefore ExtProcFilterPredicate = "Before"
+	// ExtProcFilterPredicateDuring places the filter during the specified stage.
+	ExtProcFilterPredicateDuring ExtProcFilterPredicate = "During"
+	// ExtProcFilterPredicateAfter places the filter after the specified stage.
+	ExtProcFilterPredicateAfter ExtProcFilterPredicate = "After"
+)
+
+// ExtProcStageConfig defines the filter chain stage where ExtProc runs.
+type ExtProcStageConfig struct {
+	// Stage specifies the filter chain stage.
+	// Defaults to AuthZ if not specified.
+	// +optional
+	// +kubebuilder:default=AuthZ
+	Stage ExtProcFilterStage `json:"stage,omitempty"`
+
+	// Predicate specifies where to place the filter relative to the stage.
+	// Defaults to After if not specified.
+	// +optional
+	// +kubebuilder:default=After
+	Predicate ExtProcFilterPredicate `json:"predicate,omitempty"`
+}
 
 // ExtProcPolicy defines the configuration for the Envoy External Processing filter.
 //
@@ -93,12 +135,11 @@ type ExtProcPolicy struct {
 	// +optional
 	ProcessingMode *ProcessingMode `json:"processingMode,omitempty"`
 
-	// Stage determines when ExtProc runs in the filter chain relative to authentication.
-	// BeforeAuth: runs before authentication/authorization filters
-	// AfterAuth: runs after authorization filters (default)
+	// Stage determines where ExtProc runs in the filter chain.
+	// Allows specifying both the stage and the predicate (Before/During/After).
+	// Defaults to After AuthZ stage if not specified.
 	// +optional
-	// +kubebuilder:default=AfterAuth
-	Stage ExtProcStage `json:"stage,omitempty"`
+	Stage *ExtProcStageConfig `json:"stage,omitempty"`
 
 	// Disable all external processing filters.
 	// Can be used to disable external processing policies applied at a higher level in the config hierarchy.

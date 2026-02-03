@@ -228,6 +228,7 @@ func TestHttpFilters(t *testing.T) {
 									FailureModeAllow: true,
 								},
 							},
+							FilterStage: filters.DuringStage(filters.AuthNStage),
 						},
 					},
 				},

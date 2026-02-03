@@ -11,16 +11,14 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/extensions2/pluginutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/filters"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/cmputils"
 )
 
 const (
-	// extProcBeforeAuthPrefix is the prefix for the BeforeAuth ExtProc filter
-	extProcBeforeAuthPrefix = "ext_proc_before_auth/"
-
-	// extProcAfterAuthPrefix is the prefix for the AfterAuth ExtProc filter
-	extProcAfterAuthPrefix = "ext_proc_after_auth/"
+	// extProcFilterPrefix is the prefix for the ExtProc filter name
+	extProcFilterPrefix = "ext_proc/"
 
 	// extProcGlobalDisableFilterName is the name of the filter for ExtProc that disables all ExtProc providers
 	extProcGlobalDisableFilterName = "global_disable/ext_proc"
@@ -41,7 +39,7 @@ type extprocIR struct {
 type perProviderExtProcConfig struct {
 	provider       *TrafficPolicyGatewayExtensionIR
 	perRouteConfig *envoy_ext_proc_v3.ExtProcPerRoute
-	stage          kgateway.ExtProcStage
+	filterStage    filters.FilterStage[filters.WellKnownFilterStage]
 }
 
 var _ PolicySubIR = &extprocIR{}
@@ -58,8 +56,8 @@ func (e *extprocIR) Equals(other PolicySubIR) bool {
 		return false
 	}
 	if !slices.EqualFunc(e.perProviderConfig, otherExtProc.perProviderConfig, func(a, b *perProviderExtProcConfig) bool {
-		// compare stage
-		if a.stage != b.stage {
+		// compare filterStage
+		if a.filterStage != b.filterStage {
 			return false
 		}
 		// compare perRouteConfig
@@ -114,11 +112,8 @@ func constructExtProc(
 		return nil
 	}
 
-	// Determine stage, defaulting to AfterAuth
-	stage := kgateway.ExtProcStageAfterAuth
-	if spec.Stage != "" {
-		stage = spec.Stage
-	}
+	// Convert API stage config to internal filter stage
+	filterStage := convertExtProcStageConfig(spec.Stage)
 
 	// kubebuilder validation ensures the extensionRef is not nil, since disable is nil
 	gatewayExtension, err := fetchGatewayExtension(krtctx, *spec.ExtensionRef, in.GetNamespace())
@@ -133,12 +128,58 @@ func constructExtProc(
 			{
 				provider:       gatewayExtension,
 				perRouteConfig: translateExtProcPerFilterConfig(spec),
-				stage:          stage,
+				filterStage:    filterStage,
 			},
 		},
 		providerNames: sets.New(providerName(gatewayExtension)),
 	}
 	return nil
+}
+
+// convertExtProcStageConfig converts the API ExtProcStageConfig to a FilterStage.
+// Defaults to AfterStage(AuthZStage) if nil or empty.
+func convertExtProcStageConfig(cfg *kgateway.ExtProcStageConfig) filters.FilterStage[filters.WellKnownFilterStage] {
+	// Default to After AuthZ stage
+	if cfg == nil {
+		return filters.AfterStage(filters.AuthZStage)
+	}
+
+	// Convert stage
+	var wellKnownStage filters.WellKnownFilterStage
+	switch cfg.Stage {
+	case kgateway.ExtProcFilterStageFault:
+		wellKnownStage = filters.FaultStage
+	case kgateway.ExtProcFilterStageCors:
+		wellKnownStage = filters.CorsStage
+	case kgateway.ExtProcFilterStageWaf:
+		wellKnownStage = filters.WafStage
+	case kgateway.ExtProcFilterStageAuthN:
+		wellKnownStage = filters.AuthNStage
+	case kgateway.ExtProcFilterStageAuthZ:
+		wellKnownStage = filters.AuthZStage
+	case kgateway.ExtProcFilterStageRateLimit:
+		wellKnownStage = filters.RateLimitStage
+	case kgateway.ExtProcFilterStageAccepted:
+		wellKnownStage = filters.AcceptedStage
+	case kgateway.ExtProcFilterStageOutAuth:
+		wellKnownStage = filters.OutAuthStage
+	case kgateway.ExtProcFilterStageRoute:
+		wellKnownStage = filters.RouteStage
+	default:
+		wellKnownStage = filters.AuthZStage
+	}
+
+	// Convert predicate
+	switch cfg.Predicate {
+	case kgateway.ExtProcFilterPredicateBefore:
+		return filters.BeforeStage(wellKnownStage)
+	case kgateway.ExtProcFilterPredicateDuring:
+		return filters.DuringStage(wellKnownStage)
+	case kgateway.ExtProcFilterPredicateAfter:
+		return filters.AfterStage(wellKnownStage)
+	default:
+		return filters.AfterStage(wellKnownStage)
+	}
 }
 
 func translateExtProcPerFilterConfig(
@@ -200,18 +241,67 @@ func toEnvoyProcessingMode(p *kgateway.ProcessingMode) *envoy_ext_proc_v3.Proces
 	}
 }
 
-func extProcBeforeAuthFilterName(name string) string {
-	if name == "" {
-		return extProcBeforeAuthPrefix
+// defaultExtProcFilterStage is the default filter stage for ExtProc (After AuthZ).
+var defaultExtProcFilterStage = filters.AfterStage(filters.AuthZStage)
+
+// extProcFilterName generates a unique filter name based on provider name and filter stage.
+// For the default stage (After AuthZ), the format is: ext_proc/{providerName} (backward compatible)
+// For non-default stages, the format is: ext_proc/{stage}_{predicate}/{providerName}
+func extProcFilterName(name string, filterStage filters.FilterStage[filters.WellKnownFilterStage]) string {
+	// Use simple naming for default stage (backward compatible)
+	if filterStage == defaultExtProcFilterStage {
+		if name == "" {
+			return extProcFilterPrefix
+		}
+		return extProcFilterPrefix + name
 	}
-	return extProcBeforeAuthPrefix + name
+
+	// Use stage-qualified naming for non-default stages
+	stageName := filterStageName(filterStage)
+	prefix := extProcFilterPrefix + stageName + "/"
+	if name == "" {
+		return prefix
+	}
+	return prefix + name
 }
 
-func extProcAfterAuthFilterName(name string) string {
-	if name == "" {
-		return extProcAfterAuthPrefix
+// filterStageName returns a string representation of the filter stage for use in filter names.
+func filterStageName(stage filters.FilterStage[filters.WellKnownFilterStage]) string {
+	var stagePart string
+	switch stage.RelativeTo {
+	case filters.FaultStage:
+		stagePart = "fault"
+	case filters.CorsStage:
+		stagePart = "cors"
+	case filters.WafStage:
+		stagePart = "waf"
+	case filters.AuthNStage:
+		stagePart = "authn"
+	case filters.AuthZStage:
+		stagePart = "authz"
+	case filters.RateLimitStage:
+		stagePart = "ratelimit"
+	case filters.AcceptedStage:
+		stagePart = "accepted"
+	case filters.OutAuthStage:
+		stagePart = "outauth"
+	case filters.RouteStage:
+		stagePart = "route"
+	default:
+		stagePart = "authz"
 	}
-	return extProcAfterAuthPrefix + name
+
+	var predicatePart string
+	switch {
+	case stage.RelativeWeight < 0:
+		predicatePart = "before"
+	case stage.RelativeWeight > 0:
+		predicatePart = "after"
+	default:
+		predicatePart = "during"
+	}
+
+	return stagePart + "_" + predicatePart
 }
 
 func (p *trafficPolicyPluginGwPass) handleExtProc(filterChain string, pCtxTypedFilterConfig *ir.TypedFilterConfigMap, in *extprocIR) {
@@ -227,17 +317,9 @@ func (p *trafficPolicyPluginGwPass) handleExtProc(filterChain string, pCtxTypedF
 
 	for _, cfg := range in.perProviderConfig {
 		providerName := providerName(cfg.provider)
-		p.extProcPerProvider.Add(filterChain, providerName, cfg.provider)
+		p.extProcPerProvider.Add(filterChain, providerName, cfg.provider, cfg.filterStage)
 
-		// Choose filter name based on configured stage
-		var filterName string
-		switch cfg.stage {
-		case kgateway.ExtProcStageBeforeAuth:
-			filterName = extProcBeforeAuthFilterName(providerName)
-		default: // AfterAuth
-			filterName = extProcAfterAuthFilterName(providerName)
-		}
-
+		filterName := extProcFilterName(providerName, cfg.filterStage)
 		pCtxTypedFilterConfig.AddTypedConfig(filterName, cfg.perRouteConfig)
 	}
 }

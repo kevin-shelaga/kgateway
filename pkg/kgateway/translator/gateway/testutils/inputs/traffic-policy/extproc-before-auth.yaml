@@ -57,7 +57,9 @@ spec:
   extProc:
     extensionRef:
       name: extproc-service
-    stage: BeforeAuth
+    stage:
+      stage: AuthN
+      predicate: Before
 ---
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: TrafficPolicy
@@ -72,7 +74,9 @@ spec:
   extProc:
     extensionRef:
       name: extproc-service
-    stage: AfterAuth
+    stage:
+      stage: AuthZ
+      predicate: After
 ---
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: TrafficPolicy

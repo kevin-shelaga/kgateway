@@ -415,34 +415,22 @@ func (p *trafficPolicyPluginGwPass) HttpFilters(_ ir.HttpFiltersContext, fcc ir.
 		// register the filter that sets metadata so that it can have overrides on the route level
 		stagedFilters = AddDisableFilterIfNeeded(stagedFilters, extProcGlobalDisableFilterName, extProcGlobalDisableFilterMetadataNamespace)
 	}
-	// Add ExtProc filters for listener - register at both stages
-	for _, provider := range p.extProcPerProvider.Providers[fcc.FilterChainName] {
-		extProcFilter := provider.Extension.ExtProc
+	// Add ExtProc filters for listener - register at the configured stage
+	for _, extProcProvider := range p.extProcPerProvider.Providers[fcc.FilterChainName] {
+		extProcFilter := extProcProvider.Extension.ExtProc
 		if extProcFilter == nil {
 			continue
 		}
 
-		// Register BeforeAuth filter instance
-		extProcBeforeAuthName := extProcBeforeAuthFilterName(provider.Name)
-		stagedExtProcBeforeAuth := filters.MustNewStagedFilterWithWeight(
-			extProcBeforeAuthName,
+		extProcName := extProcFilterName(extProcProvider.Name, extProcProvider.FilterStage)
+		stagedExtProc := filters.MustNewStagedFilterWithWeight(
+			extProcName,
 			extProcFilter,
-			filters.BeforeStage(filters.AuthNStage),
-			provider.Extension.PrecedenceWeight,
+			extProcProvider.FilterStage,
+			extProcProvider.Extension.PrecedenceWeight,
 		)
-		stagedExtProcBeforeAuth.Filter.Disabled = true
-		stagedFilters = append(stagedFilters, stagedExtProcBeforeAuth)
-
-		// Register AfterAuth filter instance
-		extProcAfterAuthName := extProcAfterAuthFilterName(provider.Name)
-		stagedExtProcAfterAuth := filters.MustNewStagedFilterWithWeight(
-			extProcAfterAuthName,
-			extProcFilter,
-			filters.AfterStage(filters.AuthZStage),
-			provider.Extension.PrecedenceWeight,
-		)
-		stagedExtProcAfterAuth.Filter.Disabled = true
-		stagedFilters = append(stagedFilters, stagedExtProcAfterAuth)
+		stagedExtProc.Filter.Disabled = true
+		stagedFilters = append(stagedFilters, stagedExtProc)
 	}
 
 	// register classic transforms
@@ -501,7 +489,7 @@ func (p *trafficPolicyPluginGwPass) HttpFilters(_ ir.HttpFiltersContext, fcc ir.
 		extauthName := extAuthFilterName(provider.Name)
 		stagedExtAuthFilter := filters.MustNewStagedFilterWithWeight(extauthName,
 			extAuthFilter,
-			filters.DuringStage(filters.AuthNStage),
+			provider.FilterStage,
 			provider.Extension.PrecedenceWeight,
 		)
 
@@ -516,12 +504,12 @@ func (p *trafficPolicyPluginGwPass) HttpFilters(_ ir.HttpFiltersContext, fcc ir.
 			continue
 		}
 
+		// OAuth2 filter runs before JWT filter in AuthN stage so that the ID token can be set by the OAuth2 filter
+		// that the JWT filter can extract it from the cookies
 		stagedFilter := filters.MustNewStagedFilterWithWeight(
 			oauthFilterName(provider.Name),
 			oidcFilter,
-			// before JWT filter in AuthN stage which so that the ID token can be set by the OAuth2 filter that
-			// the JWT filter can extract it from the cookies
-			filters.BeforeStage(filters.AuthNStage),
+			provider.FilterStage,
 			provider.Extension.PrecedenceWeight,
 		)
 
@@ -543,7 +531,7 @@ func (p *trafficPolicyPluginGwPass) HttpFilters(_ ir.HttpFiltersContext, fcc ir.
 		stagedJwtFilter := filters.MustNewStagedFilter(
 			jwtName,
 			jwtFilter,
-			filters.DuringStage(filters.AuthNStage),
+			provider.FilterStage,
 		)
 
 		stagedJwtFilter.Filter.Disabled = true
@@ -567,7 +555,7 @@ func (p *trafficPolicyPluginGwPass) HttpFilters(_ ir.HttpFiltersContext, fcc ir.
 		rateLimitName := getRateLimitFilterName(provider.Name)
 		stagedRateLimitFilter := filters.MustNewStagedFilter(rateLimitName,
 			rateLimitFilter,
-			filters.DuringStage(filters.RateLimitStage),
+			provider.FilterStage,
 		)
 		stagedRateLimitFilter.Filter.Disabled = true
 		stagedFilters = append(stagedFilters, stagedRateLimitFilter)

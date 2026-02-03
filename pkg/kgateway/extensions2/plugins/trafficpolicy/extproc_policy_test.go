@@ -10,6 +10,7 @@ import (
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/filters"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )
 
@@ -99,6 +100,56 @@ func TestExtprocIREquals(t *testing.T) {
 			name:     "nil vs non-nil perRoute fields are not equal",
 			extproc1: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{perRouteConfig: nil}}},
 			extproc2: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{perRouteConfig: createSimpleExtproc(envoy_ext_proc_v3.ProcessingMode_SEND)}}},
+			expected: false,
+		},
+		{
+			name: "same filterStage are equal",
+			extproc1: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{
+				provider:    createProvider("service1"),
+				filterStage: filters.BeforeStage(filters.AuthNStage),
+			}}},
+			extproc2: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{
+				provider:    createProvider("service1"),
+				filterStage: filters.BeforeStage(filters.AuthNStage),
+			}}},
+			expected: true,
+		},
+		{
+			name: "different filterStage stages are not equal",
+			extproc1: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{
+				provider:    createProvider("service1"),
+				filterStage: filters.BeforeStage(filters.AuthNStage),
+			}}},
+			extproc2: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{
+				provider:    createProvider("service1"),
+				filterStage: filters.AfterStage(filters.AuthZStage),
+			}}},
+			expected: false,
+		},
+		{
+			name: "different filterStage predicates are not equal",
+			extproc1: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{
+				provider:    createProvider("service1"),
+				filterStage: filters.BeforeStage(filters.AuthZStage),
+			}}},
+			extproc2: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{
+				provider:    createProvider("service1"),
+				filterStage: filters.AfterStage(filters.AuthZStage),
+			}}},
+			expected: false,
+		},
+		{
+			name: "same provider different filterStage are not equal",
+			extproc1: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{
+				provider:       createProvider("service1"),
+				perRouteConfig: createSimpleExtproc(envoy_ext_proc_v3.ProcessingMode_SEND),
+				filterStage:    filters.BeforeStage(filters.AuthNStage),
+			}}},
+			extproc2: &extprocIR{perProviderConfig: []*perProviderExtProcConfig{{
+				provider:       createProvider("service1"),
+				perRouteConfig: createSimpleExtproc(envoy_ext_proc_v3.ProcessingMode_SEND),
+				filterStage:    filters.AfterStage(filters.AuthZStage),
+			}}},
 			expected: false,
 		},
 	}
@@ -227,6 +278,224 @@ func TestBuildEnvoyExtProc(t *testing.T) {
 			// require.NoError(t, err)
 			require.NotNil(t, result)
 			tt.validateResult(t, result)
+		})
+	}
+}
+
+func TestConvertExtProcStageConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *kgateway.ExtProcStageConfig
+		expected filters.FilterStage[filters.WellKnownFilterStage]
+	}{
+		{
+			name:     "nil config returns default (After AuthZ)",
+			config:   nil,
+			expected: filters.AfterStage(filters.AuthZStage),
+		},
+		{
+			name:     "empty config returns default (After AuthZ)",
+			config:   &kgateway.ExtProcStageConfig{},
+			expected: filters.AfterStage(filters.AuthZStage),
+		},
+		{
+			name: "Fault stage with Before predicate",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageFault,
+				Predicate: kgateway.ExtProcFilterPredicateBefore,
+			},
+			expected: filters.BeforeStage(filters.FaultStage),
+		},
+		{
+			name: "AuthN stage with During predicate",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageAuthN,
+				Predicate: kgateway.ExtProcFilterPredicateDuring,
+			},
+			expected: filters.DuringStage(filters.AuthNStage),
+		},
+		{
+			name: "AuthZ stage with After predicate",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageAuthZ,
+				Predicate: kgateway.ExtProcFilterPredicateAfter,
+			},
+			expected: filters.AfterStage(filters.AuthZStage),
+		},
+		{
+			name: "RateLimit stage with Before predicate",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageRateLimit,
+				Predicate: kgateway.ExtProcFilterPredicateBefore,
+			},
+			expected: filters.BeforeStage(filters.RateLimitStage),
+		},
+		{
+			name: "Cors stage with During predicate",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageCors,
+				Predicate: kgateway.ExtProcFilterPredicateDuring,
+			},
+			expected: filters.DuringStage(filters.CorsStage),
+		},
+		{
+			name: "Waf stage with After predicate",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageWaf,
+				Predicate: kgateway.ExtProcFilterPredicateAfter,
+			},
+			expected: filters.AfterStage(filters.WafStage),
+		},
+		{
+			name: "Accepted stage",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageAccepted,
+				Predicate: kgateway.ExtProcFilterPredicateBefore,
+			},
+			expected: filters.BeforeStage(filters.AcceptedStage),
+		},
+		{
+			name: "OutAuth stage",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageOutAuth,
+				Predicate: kgateway.ExtProcFilterPredicateDuring,
+			},
+			expected: filters.DuringStage(filters.OutAuthStage),
+		},
+		{
+			name: "Route stage",
+			config: &kgateway.ExtProcStageConfig{
+				Stage:     kgateway.ExtProcFilterStageRoute,
+				Predicate: kgateway.ExtProcFilterPredicateAfter,
+			},
+			expected: filters.AfterStage(filters.RouteStage),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertExtProcStageConfig(tt.config)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestFilterStageName(t *testing.T) {
+	tests := []struct {
+		name     string
+		stage    filters.FilterStage[filters.WellKnownFilterStage]
+		expected string
+	}{
+		{
+			name:     "Fault Before",
+			stage:    filters.BeforeStage(filters.FaultStage),
+			expected: "fault_before",
+		},
+		{
+			name:     "Cors During",
+			stage:    filters.DuringStage(filters.CorsStage),
+			expected: "cors_during",
+		},
+		{
+			name:     "Waf After",
+			stage:    filters.AfterStage(filters.WafStage),
+			expected: "waf_after",
+		},
+		{
+			name:     "AuthN Before",
+			stage:    filters.BeforeStage(filters.AuthNStage),
+			expected: "authn_before",
+		},
+		{
+			name:     "AuthZ After",
+			stage:    filters.AfterStage(filters.AuthZStage),
+			expected: "authz_after",
+		},
+		{
+			name:     "RateLimit During",
+			stage:    filters.DuringStage(filters.RateLimitStage),
+			expected: "ratelimit_during",
+		},
+		{
+			name:     "Accepted Before",
+			stage:    filters.BeforeStage(filters.AcceptedStage),
+			expected: "accepted_before",
+		},
+		{
+			name:     "OutAuth After",
+			stage:    filters.AfterStage(filters.OutAuthStage),
+			expected: "outauth_after",
+		},
+		{
+			name:     "Route During",
+			stage:    filters.DuringStage(filters.RouteStage),
+			expected: "route_during",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterStageName(tt.stage)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtProcFilterName(t *testing.T) {
+	tests := []struct {
+		name        string
+		provider    string
+		filterStage filters.FilterStage[filters.WellKnownFilterStage]
+		expected    string
+	}{
+		{
+			name:        "default stage (After AuthZ) uses simple naming",
+			provider:    "my-provider",
+			filterStage: filters.AfterStage(filters.AuthZStage),
+			expected:    "ext_proc/my-provider",
+		},
+		{
+			name:        "default stage with empty provider",
+			provider:    "",
+			filterStage: filters.AfterStage(filters.AuthZStage),
+			expected:    "ext_proc/",
+		},
+		{
+			name:        "non-default stage uses qualified naming",
+			provider:    "my-provider",
+			filterStage: filters.BeforeStage(filters.AuthNStage),
+			expected:    "ext_proc/authn_before/my-provider",
+		},
+		{
+			name:        "non-default stage with empty provider",
+			provider:    "",
+			filterStage: filters.BeforeStage(filters.AuthNStage),
+			expected:    "ext_proc/authn_before/",
+		},
+		{
+			name:        "During AuthZ is not default",
+			provider:    "my-provider",
+			filterStage: filters.DuringStage(filters.AuthZStage),
+			expected:    "ext_proc/authz_during/my-provider",
+		},
+		{
+			name:        "Before AuthZ is not default",
+			provider:    "my-provider",
+			filterStage: filters.BeforeStage(filters.AuthZStage),
+			expected:    "ext_proc/authz_before/my-provider",
+		},
+		{
+			name:        "After RateLimit uses qualified naming",
+			provider:    "ratelimit-extproc",
+			filterStage: filters.AfterStage(filters.RateLimitStage),
+			expected:    "ext_proc/ratelimit_after/ratelimit-extproc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extProcFilterName(tt.provider, tt.filterStage)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
