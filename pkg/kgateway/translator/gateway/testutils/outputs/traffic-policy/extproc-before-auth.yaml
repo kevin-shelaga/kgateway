@@ -6,7 +6,7 @@ Clusters:
       resourceApiVersion: V3
   ignoreHealthOnHostRemoval: true
   metadata: {}
-  name: kube_a_extproc_9091
+  name: kube_default_extproc_9091
   type: EDS
   typedExtensionProtocolOptions:
     envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
@@ -20,25 +20,7 @@ Clusters:
       resourceApiVersion: V3
   ignoreHealthOnHostRemoval: true
   metadata: {}
-  name: kube_a_svc-a_8080
-  type: EDS
-- connectTimeout: 5s
-  edsClusterConfig:
-    edsConfig:
-      ads: {}
-      resourceApiVersion: V3
-  ignoreHealthOnHostRemoval: true
-  metadata: {}
-  name: kube_b_svc-b_8080
-  type: EDS
-- connectTimeout: 5s
-  edsClusterConfig:
-    edsConfig:
-      ads: {}
-      resourceApiVersion: V3
-  ignoreHealthOnHostRemoval: true
-  metadata: {}
-  name: kube_infra_example-svc_80
+  name: kube_default_test_80
   type: EDS
 - connectTimeout: 5s
   metadata: {}
@@ -48,7 +30,7 @@ Listeners:
     socketAddress:
       address: '::'
       ipv4Compat: true
-      portValue: 80
+      portValue: 8080
   filterChains:
   - filters:
     - name: envoy.filters.network.http_connection_manager
@@ -64,7 +46,7 @@ Listeners:
               value:
                 disable: true
         - disabled: true
-          name: ext_proc_before_auth/a/extproc-ext
+          name: ext_proc_before_auth/default/extproc-service
           typedConfig:
             '@type': type.googleapis.com/envoy.extensions.common.matching.v3.ExtensionWithMatcher
             extensionConfig:
@@ -86,7 +68,7 @@ Listeners:
                             failureModeAllow: true
                             grpcService:
                               envoyGrpc:
-                                clusterName: kube_a_extproc_9091
+                                clusterName: kube_default_extproc_9091
                   predicate:
                     singlePredicate:
                       customMatch:
@@ -104,7 +86,7 @@ Listeners:
                           path:
                           - key: disable
         - disabled: true
-          name: ext_proc_after_auth/a/extproc-ext
+          name: ext_proc_after_auth/default/extproc-service
           typedConfig:
             '@type': type.googleapis.com/envoy.extensions.common.matching.v3.ExtensionWithMatcher
             extensionConfig:
@@ -126,7 +108,7 @@ Listeners:
                             failureModeAllow: true
                             grpcService:
                               envoyGrpc:
-                                clusterName: kube_a_extproc_9091
+                                clusterName: kube_default_extproc_9091
                   predicate:
                     singlePredicate:
                       customMatch:
@@ -143,21 +125,6 @@ Listeners:
                           filter: dev.kgateway.disable_ext_proc
                           path:
                           - key: disable
-        - disabled: true
-          name: ratelimit/local
-          typedConfig:
-            '@type': type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
-            statPrefix: http_local_rate_limiter
-        - disabled: true
-          name: dynamic_modules/simple_mutations
-          typedConfig:
-            '@type': type.googleapis.com/envoy.extensions.filters.http.dynamic_modules.v3.DynamicModuleFilter
-            dynamicModuleConfig:
-              name: rust_module
-            filterConfig:
-              '@type': type.googleapis.com/google.protobuf.StringValue
-              value: '{}'
-            filterName: http_simple_mutations
         - name: envoy.filters.http.router
           typedConfig:
             '@type': type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -167,84 +134,67 @@ Listeners:
           configSource:
             ads: {}
             resourceApiVersion: V3
-          routeConfigName: listener~80
+          routeConfigName: listener~8080
         statPrefix: http
         useRemoteAddress: true
-    name: listener~80
-  name: listener~80
+    name: listener~8080
+  name: listener~8080
 Routes:
 - ignorePortInHostMatching: true
-  name: listener~80
+  name: listener~8080
   virtualHosts:
   - domains:
-    - example.com
-    name: listener~80~example_com
+    - test.com
+    name: listener~8080~test_com
     routes:
     - match:
-        pathSeparatedPrefix: /a/1
+        pathSeparatedPrefix: /before-auth
       metadata:
         filterMetadata:
           merge.TrafficPolicy.gateway.kgateway.dev:
             extProc:
-            - gateway.kgateway.dev/TrafficPolicy/a/route-a-policy
-            rateLimit.local:
-            - gateway.kgateway.dev/TrafficPolicy/a-root/route-a-root-policy
-            transformation:
-            - gateway.kgateway.dev/TrafficPolicy/infra/example-policy
-      name: listener~80~example_com-route-1-httproute-route-a-a-0-0-matcher-0
+            - gateway.kgateway.dev/TrafficPolicy/default/extproc-before-auth
+      name: listener~8080~test_com-route-0-httproute-test-default-0-0-rule-before-auth-matcher-0
       route:
-        cluster: kube_a_svc-a_8080
+        cluster: kube_default_test_80
         clusterNotFoundResponseCode: INTERNAL_SERVER_ERROR
       typedPerFilterConfig:
-        dynamic_modules/simple_mutations:
-          '@type': type.googleapis.com/envoy.extensions.filters.http.dynamic_modules.v3.DynamicModuleFilterPerRoute
-          dynamicModuleConfig:
-            name: rust_module
-          filterConfig:
-            '@type': type.googleapis.com/google.protobuf.StringValue
-            value: '{"response":{"add":[{"name":"abc","value":"custom-value-abc"}]}}'
-          perRouteConfigName: http_simple_mutations
-        ext_proc_after_auth/a/extproc-ext:
+        ext_proc_before_auth/default/extproc-service:
           '@type': type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
           overrides: {}
-        ratelimit/local:
-          '@type': type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
-          filterEnabled:
-            defaultValue:
-              numerator: 100
-            runtimeKey: local_rate_limit_enabled
-          filterEnforced:
-            defaultValue:
-              numerator: 100
-            runtimeKey: local_rate_limit_enforced
-          statPrefix: http_local_rate_limiter
-          tokenBucket:
-            fillInterval: 33s
-            maxTokens: 11
-            tokensPerFill: 2
     - match:
-        prefix: /
+        pathSeparatedPrefix: /after-auth
       metadata:
         filterMetadata:
           merge.TrafficPolicy.gateway.kgateway.dev:
-            transformation:
-            - gateway.kgateway.dev/TrafficPolicy/infra/example-policy
-      name: listener~80~example_com-route-3-httproute-example-route-infra-0-0-matcher-0
+            extProc:
+            - gateway.kgateway.dev/TrafficPolicy/default/extproc-after-auth
+      name: listener~8080~test_com-route-1-httproute-test-default-1-0-rule-after-auth-matcher-0
       route:
-        cluster: kube_infra_example-svc_80
+        cluster: kube_default_test_80
         clusterNotFoundResponseCode: INTERNAL_SERVER_ERROR
       typedPerFilterConfig:
-        dynamic_modules/simple_mutations:
-          '@type': type.googleapis.com/envoy.extensions.filters.http.dynamic_modules.v3.DynamicModuleFilterPerRoute
-          dynamicModuleConfig:
-            name: rust_module
-          filterConfig:
-            '@type': type.googleapis.com/google.protobuf.StringValue
-            value: '{"response":{"add":[{"name":"abc","value":"custom-value-abc"}]}}'
-          perRouteConfigName: http_simple_mutations
+        ext_proc_after_auth/default/extproc-service:
+          '@type': type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
+          overrides: {}
+    - match:
+        pathSeparatedPrefix: /default
+      metadata:
+        filterMetadata:
+          merge.TrafficPolicy.gateway.kgateway.dev:
+            extProc:
+            - gateway.kgateway.dev/TrafficPolicy/default/extproc-default
+      name: listener~8080~test_com-route-2-httproute-test-default-2-0-rule-default-matcher-0
+      route:
+        cluster: kube_default_test_80
+        clusterNotFoundResponseCode: INTERNAL_SERVER_ERROR
+      typedPerFilterConfig:
+        ext_proc_after_auth/default/extproc-service:
+          '@type': type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
+          overrides: {}
 Statuses:
   gateways:
-    infra/example-gateway:
+    default/test:
       conditions:
       - lastTransitionTime: null
         message: ""
@@ -291,45 +241,7 @@ Statuses:
         - group: gateway.networking.k8s.io
           kind: GRPCRoute
   httpRoutes:
-    a-root/route-a-root:
-      parents:
-      - conditions:
-        - lastTransitionTime: null
-          message: Successfully accepted Route
-          reason: Accepted
-          status: "True"
-          type: Accepted
-        - lastTransitionTime: null
-          message: Successfully resolved all references
-          reason: ResolvedRefs
-          status: "True"
-          type: ResolvedRefs
-        controllerName: kgateway
-        parentRef:
-          group: gateway.networking.k8s.io
-          kind: HTTPRoute
-          name: example-route
-          namespace: infra
-    a/route-a:
-      parents:
-      - conditions:
-        - lastTransitionTime: null
-          message: Successfully accepted Route
-          reason: Accepted
-          status: "True"
-          type: Accepted
-        - lastTransitionTime: null
-          message: Successfully resolved all references
-          reason: ResolvedRefs
-          status: "True"
-          type: ResolvedRefs
-        controllerName: kgateway
-        parentRef:
-          group: gateway.networking.k8s.io
-          kind: HTTPRoute
-          name: route-a-root
-          namespace: a-root
-    infra/example-route:
+    default/test:
       parents:
       - conditions:
         - lastTransitionTime: null
@@ -346,15 +258,15 @@ Statuses:
         parentRef:
           group: ""
           kind: ""
-          name: example-gateway
+          name: test
   policies:
-    TrafficPolicy/a-root/route-a-root-policy:
+    TrafficPolicy/default/extproc-after-auth:
       ancestors:
       - ancestorRef:
           group: gateway.networking.k8s.io
           kind: Gateway
-          name: example-gateway
-          namespace: infra
+          name: test
+          namespace: default
         conditions:
         - lastTransitionTime: null
           message: Policy accepted
@@ -362,18 +274,18 @@ Statuses:
           status: "True"
           type: Accepted
         - lastTransitionTime: null
-          message: Merged with other policies in target(s) and attached
-          reason: Merged
+          message: Attached to all targets
+          reason: Attached
           status: "True"
           type: Attached
         controllerName: kgateway.dev/kgateway
-    TrafficPolicy/a/route-a-policy:
+    TrafficPolicy/default/extproc-before-auth:
       ancestors:
       - ancestorRef:
           group: gateway.networking.k8s.io
           kind: Gateway
-          name: example-gateway
-          namespace: infra
+          name: test
+          namespace: default
         conditions:
         - lastTransitionTime: null
           message: Policy accepted
@@ -381,18 +293,18 @@ Statuses:
           status: "True"
           type: Accepted
         - lastTransitionTime: null
-          message: Merged with other policies in target(s) and attached
-          reason: Merged
+          message: Attached to all targets
+          reason: Attached
           status: "True"
           type: Attached
         controllerName: kgateway.dev/kgateway
-    TrafficPolicy/infra/example-policy:
+    TrafficPolicy/default/extproc-default:
       ancestors:
       - ancestorRef:
           group: gateway.networking.k8s.io
           kind: Gateway
-          name: example-gateway
-          namespace: infra
+          name: test
+          namespace: default
         conditions:
         - lastTransitionTime: null
           message: Policy accepted
@@ -400,8 +312,8 @@ Statuses:
           status: "True"
           type: Accepted
         - lastTransitionTime: null
-          message: Merged with other policies in target(s) and attached
-          reason: Merged
+          message: Attached to all targets
+          reason: Attached
           status: "True"
           type: Attached
         controllerName: kgateway.dev/kgateway

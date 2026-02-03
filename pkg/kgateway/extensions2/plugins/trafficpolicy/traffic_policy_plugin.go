@@ -415,25 +415,34 @@ func (p *trafficPolicyPluginGwPass) HttpFilters(_ ir.HttpFiltersContext, fcc ir.
 		// register the filter that sets metadata so that it can have overrides on the route level
 		stagedFilters = AddDisableFilterIfNeeded(stagedFilters, extProcGlobalDisableFilterName, extProcGlobalDisableFilterMetadataNamespace)
 	}
-	// Add ExtProc filters for listener
+	// Add ExtProc filters for listener - register at both stages
 	for _, provider := range p.extProcPerProvider.Providers[fcc.FilterChainName] {
 		extProcFilter := provider.Extension.ExtProc
 		if extProcFilter == nil {
 			continue
 		}
 
-		// add the specific auth filter
-		extProcName := extProcFilterName(provider.Name)
-		stagedExtProcFilter := filters.MustNewStagedFilterWithWeight(
-			extProcName,
+		// Register BeforeAuth filter instance
+		extProcBeforeAuthName := extProcBeforeAuthFilterName(provider.Name)
+		stagedExtProcBeforeAuth := filters.MustNewStagedFilterWithWeight(
+			extProcBeforeAuthName,
 			extProcFilter,
-			filters.AfterStage(filters.WellKnownFilterStage(filters.AuthZStage)),
+			filters.BeforeStage(filters.AuthNStage),
 			provider.Extension.PrecedenceWeight,
 		)
+		stagedExtProcBeforeAuth.Filter.Disabled = true
+		stagedFilters = append(stagedFilters, stagedExtProcBeforeAuth)
 
-		// handle the case where route level only should be fired
-		stagedExtProcFilter.Filter.Disabled = true
-		stagedFilters = append(stagedFilters, stagedExtProcFilter)
+		// Register AfterAuth filter instance
+		extProcAfterAuthName := extProcAfterAuthFilterName(provider.Name)
+		stagedExtProcAfterAuth := filters.MustNewStagedFilterWithWeight(
+			extProcAfterAuthName,
+			extProcFilter,
+			filters.AfterStage(filters.AuthZStage),
+			provider.Extension.PrecedenceWeight,
+		)
+		stagedExtProcAfterAuth.Filter.Disabled = true
+		stagedFilters = append(stagedFilters, stagedExtProcAfterAuth)
 	}
 
 	// register classic transforms

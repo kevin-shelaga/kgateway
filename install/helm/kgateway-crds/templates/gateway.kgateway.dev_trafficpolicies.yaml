@@ -875,6 +875,16 @@ spec:
                         - SKIP
                         type: string
                     type: object
+                  stage:
+                    default: AfterAuth
+                    description: |-
+                      Stage determines when ExtProc runs in the filter chain relative to authentication.
+                      BeforeAuth: runs before authentication/authorization filters
+                      AfterAuth: runs after authorization filters (default)
+                    enum:
+                    - BeforeAuth
+                    - AfterAuth
+                    type: string
                 type: object
                 x-kubernetes-validations:
                 - message: exactly one of the fields in [extensionRef disable] must

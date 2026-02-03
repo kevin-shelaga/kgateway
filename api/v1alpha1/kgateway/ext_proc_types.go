@@ -70,6 +70,17 @@ const (
 	RouteCacheActionRetain ExtProcRouteCacheAction = "Retain"
 )
 
+// ExtProcStage defines when ExtProc runs relative to authentication.
+// +kubebuilder:validation:Enum=BeforeAuth;AfterAuth
+type ExtProcStage string
+
+const (
+	// ExtProcStageBeforeAuth runs ExtProc before authentication filters.
+	ExtProcStageBeforeAuth ExtProcStage = "BeforeAuth"
+	// ExtProcStageAfterAuth runs ExtProc after authorization filters (default).
+	ExtProcStageAfterAuth ExtProcStage = "AfterAuth"
+)
+
 // ExtProcPolicy defines the configuration for the Envoy External Processing filter.
 //
 // +kubebuilder:validation:ExactlyOneOf=extensionRef;disable
@@ -81,6 +92,13 @@ type ExtProcPolicy struct {
 	// ProcessingMode defines how the filter should interact with the request/response streams
 	// +optional
 	ProcessingMode *ProcessingMode `json:"processingMode,omitempty"`
+
+	// Stage determines when ExtProc runs in the filter chain relative to authentication.
+	// BeforeAuth: runs before authentication/authorization filters
+	// AfterAuth: runs after authorization filters (default)
+	// +optional
+	// +kubebuilder:default=AfterAuth
+	Stage ExtProcStage `json:"stage,omitempty"`
 
 	// Disable all external processing filters.
 	// Can be used to disable external processing policies applied at a higher level in the config hierarchy.
